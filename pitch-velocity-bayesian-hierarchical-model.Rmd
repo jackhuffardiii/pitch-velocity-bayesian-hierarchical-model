@@ -1,0 +1,450 @@
+---
+title: "Final Project - 365"
+author: "Jack"
+date: "2025-05-02"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Bayesian Hierarchical Modeling of MLB Pitch Velocity Using Game Situation Data
+
+#### By Jack Huffard
+
+## [**1. Introduction**]{.underline}
+
+In Major League Baseball, pitch velocity is one of the critical performance metrics that can influence outcomes at the plate, in the field, and on the mound. While pitch speed is considered a function of the pitcher's physical ability, it can also vary significantly given changes in the game's context; eg. count, inning, current score, ect. This project investigates how situational game factors impact pitch release speed by developing a predictive model using a Bayesian hierarchical framework.
+
+Using Statcast pitch level data from July 2024 on a diverse subset of pitchers, we construct four Bayesian models to estimate pitch velocity, varying in whether they include pitch type and random pitcher effects. The goal of this project is to determine the extent to which pitch velocity can be explained by the game situation, and to understand how much variation in velocity is attributable to pitcher-specific characteristics.
+
+Four candidate models are considered, ranging from a simple fixed-effects model to more flexible hierarchical structures that include random intercepts and pitch type–pitcher interactions. Through model comparison using the Deviance Information Criterion (DIC), we determine which variables are significant contributors to prediction and we generate posterior predictions to predict how different pitchers will respond to the same game scenario.
+
+## [2. Data Overview]{.underline}
+
+The data used in this analysis was drawn directly from Statcast, MLB's advanced player tracking system, and consists of all recorded pitches thrown from eight pitchers of varying skill level during the month of July 2024. Each row in the data set represents a single pitch, and it includes information on the pitcher, batter, game situation, and the measured release speed of the pitch in miles per hour.
+
+### 2.1 Response Variable
+
+The response variable used in this analysis is Release Speed. Release Speed is a continuous variable indicating the velocity of the ball at the moment it was released from the pitcher's hand.
+
+### 2.2 Explanatory Variables
+
+The following variables were used as predictors in the models:
+
+-   **Pitch Type:** A categorical variable indicating the type of pitch thrown. There are 9 pitch types in the data set; Changeup, Curveball, Cutter, Four-Seam Fastball, Knuckle-Curve, Sinker, Slider, and Sweeper.
+
+-   **Balls and Strikes**: The count at the time the pitch was thrown. Balls can be 0 to 3, Strikes 0 to 2
+
+-   **Outs**: The number of outs in the inning at the time of the pitch. Can be 0 - 2.
+
+-   **Inning**: The current inning of the game.
+
+-   **Runners on Base**: Three binary indicators (on_1b, on_2b, on_3b) capturing whether runners were present on each base.
+
+-   **Batting and Fielding Score**: The score for the batting and fielding teams at the time of the pitch, used to capture pressure or game leverage. Since there is no cap on the maximum number of runs, this variable is continuous.
+
+-   **Pitcher_Id**: A categorical variable indicating which pitcher threw the pitch, used to model random effects.
+
+-   **Player Name:** The name of the pitcher who threw the pitch in question. This column was converted to the Pitcher Id column to more easily model the data. The 8 pitchers included in the data set are Tarik Skubal, Paul Skenes, Patrick Corbin, Bryce Elder, Kyle Gibson, Logan Gilbert, Jordan Montgomery, and Zac Gallen. These 8 were chosen so that the models can train on pitchers of varying skill and success levels.
+
+### 2.3 Data Cleaning & Preprocessing
+
+To prepare the data for modeling the raw data set was filtered down to the columns described above. Additionally there were two cases of screwballs thrown, these two pitches were omitted from the analysis. Categorical variables (Player Name, Pitch Type) were encoded as factors, and where appropriate converted to dummy variables. Continuous variables (Batting and Fielding Scores) were standardized in an effort to improve MCMC convergence. In this case, when the pitch types were encoded as factors ChangeUps were used as the baseline for the pitch type columns meaning that all other pitches are interpreted by the model in comparison to ChangeUps.
+
+## [3. Methods]{.underline}
+
+To estimate pitch release speed based on game situation, we constructed a series of Bayesian linear regression models using Markov Chain Monte Carlo (MCMC) sampling. These models vary in complexity, incorporating different combinations of random and fixed effects to account for situational and player-level variation.
+
+### 3.1 Model Structure
+
+The general framework of all four models assumes a normal likelihood for release speed. $$
+yi​∼N(μi​,σ2)
+$$
+
+Where $μi$ represents the expected release speed for pitch $i$, modeled as a linear combination of covariates and, in two of the models, random effects for the pitcher.
+
+### 3.2 Candidate Models
+
+We considered four models in this analysis:
+
+**Model 1:** Fixed effects only, excluding pitch type and pitcher identity
+
+**Model 2:** Includes pitch type, but no random effects
+
+**Model 3:** Includes pitcher-specific random intercepts to account for baseline differences in velocity, but no pitch type
+
+**Model 4:** Includes both fixed effects, including pitch type, and random intercepts for each pitcher, allowing for individual variability at each baseline release speed.
+
+### 3.3 Prior Specification
+
+All fixed-effects coefficients were given weakly informative normal priors with large variance:
+
+$$
+βj​∼N(0,0.01)
+$$
+
+The precision parameters for residual and random effect variances were assigned gamma priors:
+
+$$
+τ∼Gamma(0.001,0.001)
+$$
+
+### 3.4 Implementation
+
+The models were fit using JAGS via the rjags package in R. We used three chains with 1000 burn-in iterations and 5000 post-burn in iterations per chain. We assessed convergence using Gelman-Rubin diagnostics, Effective Sample Size, and trace plots.
+
+## [4. Model Selection]{.underline}
+
+### 4.1 Assessing Convergence for the Models
+
+To assess convergence for each of these models, we used a combination of Gelman-Rubin diagnostics, Effective Sample Size, and trace plots. These diagnostics, the summaries of each model, the trace plots, and the ESS of each model can be found in Appendix A. Across all models, Gelman-Rubin point estimates for fixed effects were below the commonly accepted threshold of 1.1, with the majority falling below 1.05. This indicates a good mixing and convergence of the chains. Additionally, the trace plots (see Appendix A) for each of the betas for each model confirmed that the chains were mixing properly. In the more complex hierarchical model, model 4, there were slightly higher values for the random effects parameters, but they still fell below the threshold of 1.1 meaning that the chains converged.
+
+### 4.2 Model Selection Justification
+
+To determine which model best explains the variation in release speed, we compared the four candidate models using the Deviance Information Criterion (DIC). DIC is a measure of how well the model fits the data for a given value of $θ$.
+
+| Model   | Pitch Type Included | Random Effects Used | DIC - Penalized Deviance |
+|-----------------|-----------------|-----------------|---------------------|
+| Model 1 | No                  | No                  | 30594                    |
+| Model 2 | Yes                 | No                  | 28938                    |
+| Model 3 | No                  | Yes                 | 19970                    |
+| Model 4 | Yes                 | Yes                 | 13393                    |
+
+: Among the four models, Model 4, which incorporates both fixed effects, including pitch type, and random intercepts for pitchers, achieved the lowest DIC (13393) indicating that this model is the best overall fit for the data. Model 4 represents a significant improvement from the earlier models, especially Model 1 (DIC = 30594) which excludes both pitch type and random effects. The inclusion of pitch type alone (Model 2) or random effects alone (Model 3) led to improved fits compared to the baseline, but neither matched the predictive performance of the fully specified Model 4. Consequently, Model 4 was selected for all subsequent inference and prediction tasks.
+
+From a baseball standpoint, Model 4 also provides the most realistic framework for understanding pitch velocity variation. By including pitch type as a fixed effect, the model understands that different pitches (ex: Fastball vs Curveball) naturally vary in velocity. Simultaneously including random effects for pitchers captures inherent differences in the pitcher's natural abilities, some pitchers throw harder than others regardless of pitch type or situation. As mentioned in the data overview section, these 8 pitchers were selected to represent the whole league's variation in skill level. Since not every pitcher throws 100 mph Fastballs like Paul Skenes does, this model accounts for how hard each pitcher throws each pitch, reflecting a more realistic view of the variability in pitch velocity. Most importantly, this model mirrors how coaches, players, and analysts evaluate pitchers, by contextualizing the pitches' outcome both by pitch characteristics and who the pitcher is.
+
+## 
+
+## [5. Results from Final Model]{.underline}
+
+## **5.1 Credible Intervals for Model 4 Parameters**
+
+```{r, results='hide', message=FALSE,}
+library(dplyr)
+library(rjags)
+library(coda)
+library(knitr)
+
+
+data <- read.csv('savant_data (6).csv')
+data <- data %>%
+  mutate(
+    on_1b = ifelse(is.na(on_1b), 0, 1),
+    on_2b = ifelse(is.na(on_2b), 0, 1),
+    on_3b = ifelse(is.na(on_3b), 0, 1)
+  )
+
+data_clean <- data %>%
+  select(release_speed, pitch_type, balls, strikes, outs_when_up, inning,  
+    on_1b, on_2b, on_3b, bat_score, fld_score, player_name)
+
+data_clean$pitch_type <- as.factor(data_clean$pitch_type)
+
+data_clean <- data_clean %>%
+  filter(pitch_type != 'CS')
+
+data_clean <- data_clean %>%
+  mutate(
+    bat_score = scale(bat_score),
+    fld_score = scale(fld_score)
+  )
+
+data_clean$player_name <- as.factor(data_clean$player_name)
+pitcher_names <- levels(data_clean$pitcher)
+data_clean$pitcher_id <- as.integer(data_clean$player_name)
+
+```
+
+```{r}
+sink("fixed_effects.txt")
+cat("
+model {
+  for (i in 1:n) {
+    y[i] ~ dnorm(mu[i], tau)
+    mu[i] <- inprod(beta[], X[i, ])
+  }
+
+  for (j in 1:p) {
+    beta[j] ~ dnorm(0, 0.001)
+  }
+
+  tau ~ dgamma(0.001, 0.001)
+  sigma <- 1 / sqrt(tau)
+}
+", fill = TRUE)
+sink()
+```
+
+```{R}
+sink("rand_effects.txt")
+cat("
+model {
+  for (i in 1:n) {
+    y[i] ~ dnorm(mu[i], tau)
+    mu[i] <- inprod(beta[], X[i, ]) + pitcher_eff[pitcher[i]]
+  }
+
+  # Fixed effects
+  for (j in 1:p) {
+    beta[j] ~ dnorm(0, 0.01)
+  }
+
+  # Random effects
+  for (k in 1:n_pitchers) {
+    pitcher_eff[k] ~ dnorm(0, tau_pitcher)
+  }
+
+  # Residual variance
+  tau ~ dgamma(0.001, 0.001)
+  sigma <- 1 / sqrt(tau)
+
+  # Regularized random effect variance
+  sigma_pitcher ~ dunif(0, 40)
+  tau_pitcher <- pow(sigma_pitcher, -2)
+}
+
+", fill = TRUE)
+sink()
+
+```
+
+```{R, results='hide', message=FALSE,}
+y <- data_clean$release_speed
+
+X1 <- model.matrix(~ balls + strikes + outs_when_up +
+                     inning + on_1b + on_2b + on_3b + bat_score + fld_score, data = data_clean)[, -1]
+jags_data1 <- list(y = data_clean$release_speed, X = X1, n = nrow(X1), p = ncol(X1))
+
+model1 <- jags.model("fixed_effects.txt", data = jags_data1, n.chains = 3)
+
+update(model1, 1000)
+
+samples1 <- coda.samples(model1, variable.names = c("beta", "sigma"), n.iter = 5000)
+```
+
+```{r, results='hide', message=FALSE,}
+X2 <- model.matrix(~ pitch_type + balls + strikes + outs_when_up +
+                     inning + on_1b + on_2b + on_3b + bat_score + fld_score, data = data_clean)[, -1]
+jags_data2 <- list(y = data_clean$release_speed, X = X2, n = nrow(X2), p = ncol(X2))
+
+
+model2 <- jags.model("fixed_effects.txt", data = jags_data2, n.chains = 3)
+
+update(model2, 1000)
+
+samples2 <- coda.samples(model2, variable.names = c("beta", "sigma"), n.iter = 5000)
+
+```
+
+```{r, results='hide', message=FALSE,}
+X3 <- X1  
+jags_data3 <- list(y = data_clean$release_speed, X = X3, n = nrow(X3), p = ncol(X3),
+                   pitcher = data_clean$pitcher_id,
+                   n_pitchers = length(unique(data_clean$pitcher_id)))
+
+model3 <- jags.model("rand_effects.txt", data = jags_data3, n.chains = 3)
+update(model3, 1000)
+samples3 <- coda.samples(model3,
+                         variable.names = c("beta", "sigma", "sigma_pitcher", "pitcher_eff"),
+                         n.iter = 5000)
+```
+
+```{r, results='hide', message=FALSE,}
+X4 <- X2
+jags_data4 <- list(y = data_clean$release_speed, X = X4, n = nrow(X4), p = ncol(X4),
+                   pitcher = data_clean$pitcher_id,
+                   n_pitchers = length(unique(data_clean$pitcher_id)))
+
+model4 <- jags.model("rand_effects.txt", data = jags_data4, n.chains = 3)
+update(model4, 1000)
+samples4 <- coda.samples(model4,
+                         variable.names = c("beta", "sigma", "sigma_pitcher", "pitcher_eff"),
+                         n.iter = 5000)
+
+```
+
+```{r, results='hide', message=FALSE,}
+dic1 <- dic.samples(model1, n.iter = 5000)
+dic2 <- dic.samples(model2, n.iter = 5000)
+dic3 <- dic.samples(model3, n.iter = 5000)
+dic4 <- dic.samples(model4, n.iter = 5000)
+
+
+```
+
+## 
+
+```{r, results='hide', message=FALSE,}
+summary4 <- summary(samples4)
+
+var_names <- colnames(X4)
+
+quantiles <- summary4$quantiles 
+beta_quantiles <- quantiles[grep("beta", rownames(quantiles)), ] 
+
+rownames(beta_quantiles) <- var_names
+
+beta_df <- as.data.frame(beta_quantiles[, c("2.5%", "50%", "97.5%")])
+
+other_params <- quantiles[c("sigma", "sigma_pitcher"), c("2.5%", "50%", "97.5%")]
+other_df <- as.data.frame(other_params)
+
+rownames(other_df) <- c("Residual SD (sigma)", "Pitcher SD (sigma_pitcher)")
+
+
+full_df <- rbind(beta_df, other_df)
+```
+```{R}
+knitr::kable(full_df, digits = 3, caption = "95% Credible Intervals for All Parameters in Model 4")
+```
+
+### 5.2 Variables with Significant Effects on Pitch Velocity
+
+Several of the explanatory variables in model 4 had significant effects on pitch velocity as evidenced by the 95% Credible Intervals which didn't contain zero. Notably, multiple pitch types showed strong and consistent effects on the pitch velocity. The pitch types that had the largest impact on predicting pitch velocity were Cutters, Four-Seam Fastballs, Splitters, Sinkers, Curveballs (both CU and KC), and Sweepers. This strong relationship between many of the pitch types and the pitch velocity confirms that pitch type is a primary determinant of release speed. In terms of game context, the number of strikes in the count was associated with significantly higher pitch speeds, suggesting pitchers may exert greater effort when ahead. Similarly, a higher number of outs was linked to increased velocity, while later innings were associated with a significant decline in pitch speed, likely due to fatigue. Lastly fielding team score also showed a small, yet positive effect on pitch velocity, implying that pitchers throw harder when their team has the lead.
+
+### 5.3 Variables with Non-Significant Effects on Pitch Velocity
+
+Several variables in Model 4 exhibit 95% credible intervals that contain zero, suggesting they may not have statistically significant relationships with release speed. These include pitch types such as Sliders, and on base indicators like on_1b, on_2b, and on_3b. Additionally, the effect of batter team score, which also does not appear to be significant. These findings imply that pitcher's velocity remains are generally unchanged by the presence of runners on the base paths or by the batter team's score.
+
+## [6. Predicting with the Selected Model]{.underline}
+
+To further assess the practical differences between Model 3 and Model 4, I generated predictions under a specific, controlled game situation and compared the resulting pitch speed estimates for a set of pitchers. Model 3 includes random pitcher effects but excludes pitch type, while Model 4 incorporates both random effects and pitch type indicators. Model 3 essentially represents a model of fastball velocity based solely off of situational factors, adjusting for pitcher's individual skill level. I decided to compare these two models in the same scenario to determine the impact of pitch type on model accuracy.
+
+\
+The scenario I constructed involved a four-seam fastball, with 1 ball and 1 strike in the count, 2 outs, and occurring in the 3rd inning. To ensure comparability, batter and fielder scores were standardized and held constant across all predictions. This setup allowed for a direct comparison of how the inclusion of pitch type in Model 4 affects predicted release speeds, relative to Model 3’s more general structure.
+
+```{r, results='hide', message=FALSE,}
+x_new <- setNames(rep(0, ncol(X4)), colnames(X4))
+
+x_new["pitch_typeFF"] <- 1
+x_new["balls"] <- 1 
+x_new["strikes"] <- 1
+x_new["outs_when_up"] <- 2
+x_new["inning"] <- 3
+x_new["bat_score"] <- scale(1, center = attr(data_clean$bat_score, "scaled:center"), scale = attr(data_clean$bat_score, "scaled:scale"))
+x_new["fld_score"] <- scale(2, center = attr(data_clean$fld_score, "scaled:center"), scale = attr(data_clean$fld_score, "scaled:scale"))
+
+x_new <- matrix(x_new, nrow = 1)
+
+beta_samples4 <- as.matrix(samples4[, grep("beta", varnames(samples4))])
+pitcher_eff_samples4 <- as.matrix(samples4[, grep("pitcher_eff", varnames(samples4))])
+
+pitcher_preds <- list()
+n_pitchers <- ncol(pitcher_eff_samples4)
+
+for (i in 1:n_pitchers) {
+  pred_i <- beta_samples4 %*% t(x_new) + pitcher_eff_samples4[, i]
+  pitcher_preds[[i]] <- quantile(pred_i, probs = c(0.025, 0.5, 0.975))
+}
+
+pitcher_names <- levels(data_clean$player_name)
+
+pred_df4 <- do.call(rbind, pitcher_preds) %>%
+  as.data.frame() %>%
+  mutate(Pitcher = pitcher_names[1:nrow(.)]) %>%
+  select(Pitcher, everything()) %>%
+  rename(`M4_2.5%` = `2.5%`, `M4_50%` = `50%`, `M4_97.5%` = `97.5%`)
+
+
+```
+
+```{r, results='hide', message=FALSE,}
+x_new3 <- setNames(rep(0, ncol(X3)), colnames(X3))
+
+x_new3["balls"] <- 1 
+x_new3["strikes"] <- 1
+x_new3["outs_when_up"] <- 2
+x_new3["inning"] <- 3
+x_new3["bat_score"] <- scale(1, center = attr(data_clean$bat_score, "scaled:center"), scale = attr(data_clean$bat_score, "scaled:scale"))
+x_new3["fld_score"] <- scale(2, center = attr(data_clean$fld_score, "scaled:center"), scale = attr(data_clean$fld_score, "scaled:scale"))
+
+x_new3 <- matrix(x_new3, nrow = 1)
+
+beta_samples3 <- as.matrix(samples3[, grep("beta", varnames(samples3))])
+pitcher_eff_samples3 <- as.matrix(samples3[, grep("pitcher_eff", varnames(samples3))])
+
+pitcher_preds3 <- list()
+n_pitchers3 <- ncol(pitcher_eff_samples3)
+
+for (i in 1:n_pitchers3) {
+  pred_i <- beta_samples3 %*% t(x_new3) + pitcher_eff_samples3[, i]
+  pitcher_preds3[[i]] <- quantile(pred_i, probs = c(0.025, 0.5, 0.975))
+}
+
+pred_df3 <- do.call(rbind, pitcher_preds3) %>%
+  as.data.frame() %>%
+  mutate(Pitcher = pitcher_names[1:nrow(.)]) %>%
+  select(Pitcher, everything()) %>%
+  rename(`M3_2.5%` = `2.5%`, `M3_50%` = `50%`, `M3_97.5%` = `97.5%`)
+
+
+comparison_df <- left_join(pred_df3, pred_df4, by = "Pitcher")
+
+```
+
+```{R}
+knitr::kable(comparison_df, digits = 2, caption = "Predicted Pitch Speeds from Model 3 vs Model 4")
+```
+
+As shown in the table above, Model 4 consistently produces higher predicted pitch speeds than Model 3 for every pitcher under the same conditions, with median differences typically in the range of 4 to 6 mph. The inclusion of pitch type allows Model 4 to capture the inherently faster nature of four-seam fastballs compared to the average pitch, while Model 3 lacks the structure to adjust its predictions accordingly. This results in narrower credible intervals in Model 3 that do not fully account for the pitch-specific variation captured in Model 4. The comparison underscores the improved specificity and predictive accuracy of Model 4, particularly when accounting for pitch type is crucial in estimating release velocity.
+
+## [7. Conclusion]{.underline}
+
+This analysis explored the factors influencing pitch release speed from MLB pitchers using Bayesian hierarchical models. Through several iterations of models, we found that including both pitch type and pitcher-level random effects significantly improved predictive accuracy, as reflected by a substantial reduction in Deviance Information Criterion (DIC), from 30000+ in Model 1 to roughly 14000 in Model 4 a reduction of over 54%. Model 4, which accounted for both fixed situational variables and pitcher-specific variability, emerged as the most effective model. Credible interval analysis confirmed several significant predictors, most notably pitch type, strike count, and inning, while highlighting the importance of accounting for individual pitcher differences. The model’s predictive strength was further validated by comparing its estimates across pitchers in a controlled game scenario to another model developed in the analysis. Overall, this project underscores the value of hierarchical modeling for understanding complex player-level effects in sports analytics.
+
+# **Appendix A**
+
+## Model 1 Convergence statistics & trace plots
+
+```{r}
+summary(samples1)
+effectiveSize(samples1)
+gelman.diag(samples1)
+plot(samples1)
+
+```
+
+## Model 2 Convergence statistics & trace plots
+
+```{R}
+summary(samples2)
+effectiveSize(samples2)
+gelman.diag(samples2)
+plot(samples2[, 1:10])
+plot(samples2[, 10:19])
+```
+
+## Model 3 Convergence statistics & trace plots
+
+```{R}
+summary(samples3)
+effectiveSize(samples3)
+gelman.diag(samples3)
+plot(samples3[, 1:5])
+plot(samples3[, 6:8])
+plot(samples3[, 18:19])
+```
+
+## Model 4 Convergence statistics & trace plots
+
+```         
+summary(samples4)
+effectiveSize(samples4)
+gelman.diag(samples4)
+plot(samples3[, 1:10])
+```
+
+## DIC statistics for Models 1 - 4
+
+```{R}
+print(dic1) 
+print(dic2) 
+print(dic3) 
+print(dic4)
+```
